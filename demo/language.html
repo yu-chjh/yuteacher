@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>語音轉繁體中文工具 v0.3</title>
+    <!-- 使用 Tailwind CSS 來進行快速排版與美化 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 避免在拖曳時選取到文字 */
+        .no-select {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* 自訂捲軸樣式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        /* 設定 viewport，隱藏超出的部分 */
+        #viewport {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #f3f4f6; /* 淺灰色背景 */
+            position: relative;
+            cursor: grab;
+        }
+        #viewport:active {
+            cursor: grabbing;
+        }
+        /* 實際可被縮放拖曳的內容區塊 */
+        #content {
+            position: absolute;
+            transform-origin: 0 0;
+            width: 100%;
+            max-width: 600px;
+            /* 將初始隱藏，由 JS 計算置中後再顯示 */
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="m-0 p-0 overflow-hidden">
+
+    <!-- 視圖容器 (負責接收滑鼠與觸控事件) -->
+    <div id="viewport" class="no-select">
+        
+        <!-- 應用程式本體 -->
+        <div id="content" class="bg-white rounded-2xl shadow-2xl flex flex-col p-6 m-4 cursor-auto">
+            
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold text-gray-800 mb-2">語音轉文字 (繁體中文)</h1>
+                <p class="text-sm text-gray-500">
+                    💻 <b>電腦版</b>：滾輪縮放、左鍵拖曳背景<br>
+                    📱 <b>手機平板</b>：雙指縮放拖曳、單指點選操作<br>
+                    🗣️ <b>語音指令</b>：支援「逗號」、「句號」、「冒號」、「換下一行」
+                </p>
+            </div>
+
+            <!-- 控制面板 -->
+            <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
+                <div class="flex gap-2">
+                    <!-- 開始錄音按鈕 -->
+                    <button id="start-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-full shadow-md transition-all duration-300 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                        </svg>
+                        <span>開始</span>
+                    </button>
+                    <!-- 停止/暫停錄音按鈕 -->
+                    <button id="stop-btn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-5 rounded-full shadow-md transition-all duration-300 flex items-center gap-2 opacity-50 cursor-not-allowed" disabled>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path>
+                        </svg>
+                        <span>暫停/停止</span>
+                    </button>
+                </div>
+                
+                <div class="flex flex-col items-end">
+                    <span id="status-indicator" class="inline-block w-3 h-3 bg-gray-400 rounded-full mb-1"></span>
+                    <span id="status-text" class="text-sm text-gray-500 font-medium">準備就緒</span>
+                </div>
+            </div>
+
+            <!-- 文字輸出區域 -->
+            <div class="relative flex-grow h-64 sm:h-80 border-2 border-gray-200 rounded-xl bg-gray-50 p-4 overflow-y-auto font-sans leading-relaxed tracking-wide text-lg" id="output-container">
+                <div id="output" class="text-gray-800 whitespace-pre-wrap"></div>
+                <div id="interim" class="text-gray-400 italic whitespace-pre-wrap"></div>
+            </div>
+
+            <!-- 底部工具列 -->
+            <div class="mt-4 flex justify-end gap-3">
+                <button id="clear-btn" class="px-4 py-2 text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium transition-colors">
+                    清空內容
+                </button>
+                <button id="copy-btn" class="px-4 py-2 text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg font-medium transition-colors">
+                    複製文字
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        /* ==========================================
+           1. 拖曳與縮放邏輯 (Pan & Zoom)
+           ========================================== */
+        const viewport = document.getElementById('viewport');
+        const content = document.getElementById('content');
+        
+        let scale = 1;
+        let x = 0;
+        let y = 0;
+        
+        // 滑鼠拖曳狀態
+        let isDragging = false;
+        let startX, startY;
+
+        // 更新畫面 Transform
+        function updateTransform() {
+            content.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        }
+
+        // 初始化置中
+        window.addEventListener('load', () => {
+            const rect = content.getBoundingClientRect();
+            x = (window.innerWidth - rect.width) / 2;
+            y = (window.innerHeight - rect.height) / 2;
+            updateTransform();
+            content.style.opacity = '1'; 
+        });
+
+        // --- 電腦版：滑鼠事件 ---
+        viewport.addEventListener('mousedown', (e) => {
+            const targetTag = e.target.tagName.toLowerCase();
+            if (['button', 'svg', 'path', 'span'].includes(targetTag) || e.target.closest('#content')) {
+                return;
+            }
+            isDragging = true;
+            startX = e.clientX - x;
+            startY = e.clientY - y;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            x = e.clientX - startX;
+            y = e.clientY - startY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // --- 電腦版：滾輪縮放 ---
+        viewport.addEventListener('wheel', (e) => {
+            if(e.target === viewport || !e.target.closest('#output-container')) {
+                e.preventDefault();
+            } else {
+                return; 
+            }
+
+            const zoomSensitivity = 0.001;
+            const delta = e.deltaY * -zoomSensitivity;
+            const newScale = Math.min(Math.max(0.5, scale * Math.exp(delta)), 3); 
+
+            const rect = viewport.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            x = mouseX - (mouseX - x) * (newScale / scale);
+            y = mouseY - (mouseY - y) * (newScale / scale);
+            scale = newScale;
+
+            updateTransform();
+        }, { passive: false });
+
+        // --- 手機平板：觸控事件 ---
+        let initialDistance = null;
+        let initialScale = 1;
+        let touchStartX = 0, touchStartY = 0;
+        let initialX = 0, initialY = 0;
+
+        viewport.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault(); 
+                
+                initialDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                initialScale = scale;
+
+                touchStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                touchStartY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                initialX = x;
+                initialY = y;
+            }
+        }, { passive: false });
+
+        viewport.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault(); 
+
+                const currentDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+
+                const currentTouchX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const currentTouchY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+                const newScale = Math.min(Math.max(0.5, initialScale * (currentDistance / initialDistance)), 3);
+
+                x = currentTouchX - (touchStartX - initialX) * (newScale / initialScale);
+                y = currentTouchY - (touchStartY - initialY) * (newScale / initialScale);
+                scale = newScale;
+
+                updateTransform();
+            }
+        }, { passive: false });
+
+        viewport.addEventListener('touchend', (e) => {
+            if (e.touches.length < 2) {
+                initialDistance = null;
+            }
+        });
+
+        /* ==========================================
+           2. 語音轉文字邏輯 (Web Speech API)
+           ========================================== */
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const outputDiv = document.getElementById('output');
+        const interimDiv = document.getElementById('interim');
+        const outputContainer = document.getElementById('output-container');
+        const clearBtn = document.getElementById('clear-btn');
+        const copyBtn = document.getElementById('copy-btn');
+
+        // 檢查瀏覽器是否支援
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        
+        if (!SpeechRecognition) {
+            outputDiv.innerHTML = "<span class='text-red-500'>⚠️ 您的瀏覽器不支援語音辨識功能，請使用 Google Chrome 瀏覽器。</span>";
+            startBtn.disabled = true;
+            startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            const recognition = new SpeechRecognition();
+            
+            // 設定參數
+            recognition.continuous = true; // 持續辨識
+            recognition.interimResults = true; // 顯示即時(尚未確認)的辨識結果
+            recognition.lang = 'zh-TW'; // 設定為繁體中文
+
+            let isRecording = false;
+            let finalTranscript = ''; // 儲存最終確認的文字
+
+            // 替換特定文字為標點符號與換行指令的函數
+            function formatPunctuation(text) {
+                return text
+                    .replace(/逗號|逗号/g, '，')
+                    .replace(/句號|句号/g, '。')
+                    .replace(/冒號|冒号/g, '：')
+                    // 加入換行指令判斷 (換下一行 或 換行)
+                    .replace(/換下一行|換行/g, '\n');
+            }
+
+            // 開始按鈕
+            startBtn.addEventListener('click', () => {
+                if (!isRecording) {
+                    try {
+                        recognition.start();
+                    } catch (err) {
+                        console.error("啟動辨識失敗:", err);
+                    }
+                }
+            });
+
+            // 暫停/停止按鈕
+            stopBtn.addEventListener('click', () => {
+                if (isRecording) {
+                    isRecording = false; // 標記為不再錄音
+                    recognition.stop();
+                }
+            });
+
+            // 錄音開始
+            recognition.onstart = () => {
+                isRecording = true;
+                
+                // 切換按鈕狀態
+                startBtn.disabled = true;
+                startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                stopBtn.disabled = false;
+                stopBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                
+                statusIndicator.classList.replace('bg-gray-400', 'bg-red-500');
+                statusIndicator.classList.add('animate-pulse');
+                statusText.textContent = '錄音中，請說話...';
+            };
+
+            // 處理辨識結果
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    // 取得辨識文字並進行標點符號與換行替換
+                    let transcriptPiece = formatPunctuation(event.results[i][0].transcript);
+
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcriptPiece + '\n';
+                    } else {
+                        interimTranscript += transcriptPiece;
+                    }
+                }
+
+                outputDiv.textContent = finalTranscript;
+                interimDiv.textContent = interimTranscript;
+
+                // 自動捲動到最底部
+                outputContainer.scrollTop = outputContainer.scrollHeight;
+            };
+
+            // 處理錯誤
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error', event.error);
+                if (event.error === 'no-speech') {
+                    statusText.textContent = '未偵測到聲音';
+                } else if (event.error === 'audio-capture') {
+                    statusText.textContent = '找不到麥克風';
+                } else if (event.error === 'not-allowed') {
+                    statusText.textContent = '麥克風權限被拒絕';
+                } else {
+                    statusText.textContent = `錯誤: ${event.error}`;
+                }
+                
+                stopRecordingUI();
+            };
+
+            // 錄音結束
+            recognition.onend = () => {
+                if (isRecording) {
+                    // 如果仍在錄音狀態卻斷開(如靜音太久)，自動重連
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        stopRecordingUI();
+                    }
+                } else {
+                    // 若是被按下暫停/停止鈕，則正常停止 UI
+                    stopRecordingUI();
+                }
+            };
+
+            function stopRecordingUI() {
+                isRecording = false;
+                
+                // 恢復按鈕狀態
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                stopBtn.disabled = true;
+                stopBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                statusIndicator.classList.replace('bg-red-500', 'bg-gray-400');
+                statusIndicator.classList.remove('animate-pulse');
+                
+                if(!statusText.textContent.includes('錯誤')) {
+                    statusText.textContent = '已暫停 / 準備就緒';
+                }
+                interimDiv.textContent = ''; // 清除暫存文字
+            }
+
+            // 清空內容按鈕
+            clearBtn.addEventListener('click', () => {
+                finalTranscript = '';
+                outputDiv.textContent = '';
+                interimDiv.textContent = '';
+            });
+
+            // 複製文字按鈕
+            copyBtn.addEventListener('click', () => {
+                const textToCopy = finalTranscript.trim();
+                if (!textToCopy) return;
+
+                // 建立臨時 textarea 來執行複製指令
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    
+                    // 按鈕文字變更提示
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = '已複製！';
+                    copyBtn.classList.replace('bg-indigo-500', 'bg-green-500');
+                    copyBtn.classList.replace('hover:bg-indigo-600', 'hover:bg-green-600');
+                    
+                    setTimeout(() => {
+                        copyBtn.textContent = originalText;
+                        copyBtn.classList.replace('bg-green-500', 'bg-indigo-500');
+                        copyBtn.classList.replace('hover:bg-green-600', 'hover:bg-indigo-600');
+                    }, 2000);
+                } catch (err) {
+                    console.error('複製失敗', err);
+                } finally {
+                    document.body.removeChild(textarea);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
